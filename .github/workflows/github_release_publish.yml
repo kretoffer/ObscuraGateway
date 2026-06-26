@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        build_type: [Release]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libsodium-dev
+
+      - name: Install dependencies (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          brew install cmake libsodium
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_OBSCURAGATEWAY_TESTS=OFF
+
+      - name: Build project
+        run: cmake --build build --config ${{ matrix.build_type }}
+
+      - name: Install project
+        run: cmake --install build --prefix install_dir --config ${{ matrix.build_type }}
+
+      - name: Archive production artifacts (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: tar -czf obscuragateway-linux.tar.gz -C install_dir .
+        shell: bash
+
+      - name: Archive production artifacts (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: Compress-Archive -Path install_dir\* -DestinationPath obscuragateway-windows.zip
+        shell: pwsh
+
+      - name: Archive production artifacts (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: tar -czf obscuragateway-macos.tar.gz -C install_dir .
+        shell: bash
+
+      - name: Upload artifact (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        uses: actions/upload-artifact@v3
+        with:
+          name: obscuragateway-linux
+          path: obscuragateway-linux.tar.gz
+
+      - name: Upload artifact (Windows)
+        if: startsWith(matrix.os, 'windows')
+        uses: actions/upload-artifact@v3
+        with:
+          name: obscuragateway-windows
+          path: obscuragateway-windows.zip
+
+      - name: Upload artifact (macOS)
+        if: startsWith(matrix.os, 'macos')
+        uses: actions/upload-artifact@v3
+        with:
+          name: obscuragateway-macos
+          path: obscuragateway-macos.tar.gz
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Changelog content
+        id: changelog
+        run: echo "changelog_body=$(cat CHANGELOG.md)" >> $GITHUB_OUTPUT
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref }}
+          name: Release ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.changelog_body }}
+          files: artifacts/*/*
