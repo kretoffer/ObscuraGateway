@@ -23,16 +23,38 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake libsodium-dev
+          sudo apt-get install -y build-essential cmake libsodium-dev ccache
 
       - name: Install dependencies (macOS)
         if: startsWith(matrix.os, 'macos')
         run: |
-          brew install cmake libsodium
+          brew install cmake libsodium ccache
+
+      - name: Cache ccache
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ hashFiles('**/*.cpp', '**/*.hpp', '**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+
+      - name: Cache FetchContent
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-fetchcontent-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-fetchcontent-
 
       - name: Configure CMake
+        shell: bash
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_OBSCURAGATEWAY_TESTS=OFF
+          CMAKE_ARGS=""
+          if [[ "${{ runner.os }}" != "Windows" ]]; then
+            CMAKE_ARGS="-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_OBSCURAGATEWAY_TESTS=OFF $CMAKE_ARGS
 
       - name: Build project
         run: cmake --build build --config ${{ matrix.build_type }}
